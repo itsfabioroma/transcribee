@@ -90,10 +90,18 @@ Each transcript saves to `~/Documents/transcripts/{category}/{title}/`:
 
 | File | What it's for |
 |------|---------------|
-| `transcription.txt` | Speaker-labeled transcript — **paste this into your LLM** |
-| `transcription-raw.txt` | Plain text without speaker labels |
-| `transcription-raw.json` | Word-level timings for precise references |
+| `transcript.txt` | Speaker-labeled transcript — **paste this into your LLM** |
 | `metadata.json` | Video info, language, auto-detected theme |
+
+### Raw JSON (optional)
+
+For power users who need word-level timestamps and confidence scores:
+
+```bash
+transcribee --raw "https://youtube.com/watch?v=..."
+```
+
+This adds `transcript-raw.json` with the full ElevenLabs response.
 
 ## How it works 🐝
 

@@ -15,7 +15,10 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // ---------- config -----------------------------------------------------------
 
-const INPUT = process.argv[2] ?? 'https://www.youtube.com/watch?v=fdQtJ6TD5fE';
+// CLI arguments
+const args = process.argv.slice(2);
+const RAW_FLAG = args.includes('--raw');
+const INPUT = args.find(arg => !arg.startsWith('--')) ?? 'https://www.youtube.com/watch?v=fdQtJ6TD5fE';
 const BASE_TRANSCRIPTS_DIR = path.join(require('os').homedir(), 'Documents', 'transcripts');
 const TMP_AUDIO = path.join(tmpdir(), `yt-audio-${Date.now()}.m4a`);
 
@@ -729,10 +732,9 @@ async function main() {
     await fs.mkdir(outputDir, { recursive: true });
 
     // define output file paths
-    const txtOut = path.join(outputDir, 'transcription-raw.txt');
-    const jsonOut = path.join(outputDir, 'transcription-raw.json');
-    const parsedTxtOut = path.join(outputDir, 'transcription.txt');
+    const transcriptOut = path.join(outputDir, 'transcript.txt');
     const metadataOut = path.join(outputDir, 'metadata.json');
+    const rawJsonOut = path.join(outputDir, 'transcript-raw.json');
 
     // extract theme info for metadata
     const themeInfo: ThemeClassification = {
@@ -777,16 +779,23 @@ async function main() {
         },
     };
 
-    // save files
-    await Promise.all([
-        fs.writeFile(txtOut, resp.text, 'utf8'),
-        fs.writeFile(jsonOut, JSON.stringify(resp, null, 2), 'utf8'),
-        fs.writeFile(parsedTxtOut, structuredTranscript, 'utf8'),
+    // save files (default: 2 files, with --raw: 3 files)
+    const writePromises = [
+        fs.writeFile(transcriptOut, structuredTranscript, 'utf8'),
         fs.writeFile(metadataOut, JSON.stringify(completeMetadata, null, 2), 'utf8'),
-    ]);
+    ];
+
+    if (RAW_FLAG) {
+        writePromises.push(fs.writeFile(rawJsonOut, JSON.stringify(resp, null, 2), 'utf8'));
+    }
+
+    await Promise.all(writePromises);
 
     console.log(`\n✅ Saved files to:\n  ${outputDir}\n`);
-    console.log(`Files:\n  • transcription-raw.txt\n  • transcription-raw.json\n  • transcription.txt\n  • metadata.json`);
+    const fileList = RAW_FLAG
+        ? `Files:\n  • transcript.txt\n  • metadata.json\n  • transcript-raw.json`
+        : `Files:\n  • transcript.txt\n  • metadata.json`;
+    console.log(fileList);
 
     // cleanup temp audio if needed
     if (needsCleanup) {
