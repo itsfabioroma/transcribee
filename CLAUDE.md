@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A video transcription system that downloads audio from YouTube, Instagram Reels, and local files, transcribes it using ElevenLabs, and automatically categorizes transcripts into a knowledge library using Claude AI for theme classification.
+A video transcription system that downloads audio from YouTube, Instagram Reels, TikTok, and local files, transcribes it using ElevenLabs, and automatically categorizes transcripts into a knowledge library using Claude AI for theme classification.
 
 ## Quick Start
 
