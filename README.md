@@ -14,7 +14,7 @@ LLMs can analyze, summarize, and answer questions about video content - but they
 
 ## Features
 
-- Transcribes YouTube videos or local audio/video files
+- Transcribes YouTube videos and local audio/video files
 - Speaker diarization (identifies different speakers)
 - Auto-categorizes transcripts into a knowledge library using Claude
 - Outputs raw text, formatted transcript with speaker labels, and metadata
@@ -40,17 +40,28 @@ cp .env.example .env
 # Add your API keys to .env
 ```
 
+### Shell alias (optional)
+
+Add to `~/.zshrc` for quick access:
+
+```bash
+alias transcribe="noglob /path/to/transcribe/transcribe.sh"
+```
+
 ## Usage
 
 ```bash
 # YouTube video
+transcribe "https://www.youtube.com/watch?v=..."
+
+# Local video file
+transcribe ~/Videos/interview.mp4
+
+# Local audio file
+transcribe ~/Downloads/podcast.mp3
+
+# Without alias
 pnpm exec tsx index.ts "https://www.youtube.com/watch?v=..."
-
-# Local file
-pnpm exec tsx index.ts ~/Videos/interview.mp4
-
-# Or use wrapper script
-./transcribe.sh "https://www.youtube.com/watch?v=..."
 ```
 
 ## Output
@@ -66,7 +77,7 @@ Transcripts are saved to `~/Documents/transcripts/{category}/{title}-{date}/`:
 
 ## How it works
 
-1. Downloads audio (yt-dlp) or extracts from video (ffmpeg)
+1. Downloads audio from YouTube (yt-dlp) or extracts from local video (ffmpeg)
 2. Transcribes via ElevenLabs `scribe_v1_experimental` model with speaker diarization
 3. Analyzes existing library structure
 4. Claude classifies content into appropriate category folder
@@ -74,5 +85,7 @@ Transcripts are saved to `~/Documents/transcripts/{category}/{title}-{date}/`:
 
 ## Supported formats
 
-**Audio:** mp3, m4a, wav, ogg, flac
-**Video:** mp4, mkv, webm, mov, avi
+| Type | Formats |
+|------|---------|
+| Audio | mp3, m4a, wav, ogg, flac |
+| Video | mp4, mkv, webm, mov, avi |
