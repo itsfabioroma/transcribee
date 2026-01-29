@@ -1,6 +1,6 @@
 # transcribee 🐝
 
-Turn YouTube videos and podcasts into a self-organizing knowledge base you can chat with.
+**Open source macOS YouTube video transcriber that evolves a self-organizing knowledge base.**
 
 ```bash
 transcribee "https://youtube.com/watch?v=..."
