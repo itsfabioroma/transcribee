@@ -1,6 +1,6 @@
 # transcribee 🐝
 
-Extract high-quality transcripts from YouTube videos and local media files to use as context for LLM conversations.
+Extract high-quality transcripts from YouTube videos and local media files to use as context for LLM conversations. Built for macOS.
 
 ## Why 🍯
 
