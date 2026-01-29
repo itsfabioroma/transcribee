@@ -1,5 +1,5 @@
 {
-    "name": "transcribe",
+    "name": "transcribee",
     "version": "1.0.0",
     "description": "Transcribe audio from YouTube videos",
     "main": "index.js",
