@@ -64,9 +64,31 @@ transcribee ~/Downloads/podcast.mp3
 pnpm exec tsx index.ts "https://www.youtube.com/watch?v=..."
 ```
 
+## Auto-organization 📂
+
+Transcripts are automatically organized into `~/Documents/transcripts/` using Claude:
+
+- Analyzes transcript content to determine topic/theme
+- Scans existing library folders
+- Reuses categories when content is semantically similar
+- Creates new categories when needed
+- Uses flat structure with kebab-case names (e.g., `ai-podcasts`, `tech-interviews`)
+
+Example library structure:
+```
+~/Documents/transcripts/
+├── ai-podcasts/
+│   ├── lex-fridman-sam-altman-2024-01-15/
+│   └── dwarkesh-patel-ilya-sutskever-2024-02-20/
+├── tech-interviews/
+│   └── pieter-levels-on-startups-2024-03-10/
+└── business-talks/
+    └── yc-startup-school-2024-04-05/
+```
+
 ## Output 🍯
 
-Transcripts are saved to `~/Documents/transcripts/{category}/{title}-{date}/`:
+Each transcript folder contains:
 
 | File | Description |
 |------|-------------|
@@ -78,10 +100,9 @@ Transcripts are saved to `~/Documents/transcripts/{category}/{title}-{date}/`:
 ## How it works 🐝
 
 1. Downloads audio from YouTube (yt-dlp) or extracts from local video (ffmpeg)
-2. Transcribes via ElevenLabs `scribe_v1_experimental` model with speaker diarization
-3. Analyzes existing library structure
-4. Claude classifies content into appropriate category folder
-5. Saves transcript files with metadata
+2. Transcribes via ElevenLabs `scribe_v1_experimental` with speaker diarization
+3. Claude analyzes content and existing library to pick/create category
+4. Saves transcript files with metadata
 
 ## Supported formats
 
