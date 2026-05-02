@@ -259,9 +259,14 @@ function folderTreeToString(node: FolderNode, indent: string = ''): string {
     const lines: string[] = [];
 
     if (node.type === 'transcript' && node.metadata) {
+        const theme = node.metadata.theme;
+        const summary = theme?.summary ?? 'No summary available';
+        const primaryTheme = theme?.primaryTheme ?? 'unknown';
+        const subTheme = theme?.subTheme ?? node.metadata.title ?? node.name;
+
         lines.push(`${indent}📄 ${node.name}`);
-        lines.push(`${indent}   Summary: ${node.metadata.theme.summary}`);
-        lines.push(`${indent}   Theme: ${node.metadata.theme.primaryTheme} > ${node.metadata.theme.subTheme}`);
+        lines.push(`${indent}   Summary: ${summary}`);
+        lines.push(`${indent}   Theme: ${primaryTheme} > ${subTheme}`);
     } else if (node.type === 'folder') {
         if (indent) lines.push(`${indent}📁 ${node.name}/`);
         if (node.children) {
