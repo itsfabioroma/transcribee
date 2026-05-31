@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # transcribee 🐝
 
 **Open source macOS transcriber for YouTube, Instagram Reels, TikTok, and local media — evolves a self-organizing knowledge base.**
