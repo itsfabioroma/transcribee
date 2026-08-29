@@ -103,12 +103,27 @@ For power users who need word-level timestamps and confidence scores:
 transcribee --raw "https://youtube.com/watch?v=..."
 ```
 
-This adds `transcript-raw.json` with the full ElevenLabs response.
+This adds `transcript-raw.json` with the full transcription-provider response.
+
+## Optional Atlas Cloud transcription
+
+ElevenLabs remains the default speech-to-text provider. To use Atlas Cloud's
+speaker-aware ASR for MP3, WAV, OGG, or raw audio, set these values in `.env`:
+
+```bash
+ASR_PROVIDER=atlascloud
+ATLASCLOUD_API_KEY=your_atlascloud_api_key_here
+ATLASCLOUD_API_BASE=https://api.atlascloud.ai/api/v1
+ATLASCLOUD_ASR_MODEL=bytedance/seed-asr-2.0
+```
+
+URL and video inputs are converted to MP3 automatically for this provider.
+Direct M4A and FLAC inputs should be converted to MP3, WAV, or OGG first.
 
 ## How it works 🐝
 
 1. Downloads audio from YouTube (yt-dlp) or extracts from local video (ffmpeg)
-2. Transcribes with ElevenLabs (`scribe_v1_experimental` with speaker diarization)
+2. Transcribes with ElevenLabs by default, or Atlas Cloud when explicitly configured
 3. Claude analyzes content and existing library structure
 4. Auto-categorizes into the right folder
 5. Saves transcript files with metadata
@@ -119,7 +134,8 @@ This adds `transcript-raw.json` with the full ElevenLabs response.
 - Node.js 18+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `brew install yt-dlp`
 - [ffmpeg](https://ffmpeg.org/) — `brew install ffmpeg`
-- [ElevenLabs API key](https://elevenlabs.io/) — for transcription
+- [ElevenLabs API key](https://elevenlabs.io/) — for default transcription
+- [Atlas Cloud API key](https://atlascloud.ai/) — optional alternative transcription provider
 - [Anthropic API key](https://anthropic.com/) — for auto-categorization
 
 ## Supported formats

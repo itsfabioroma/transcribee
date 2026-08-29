@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import dotenv from 'dotenv';
 import { ElevenLabsClient } from 'elevenlabs';
 import Anthropic from '@anthropic-ai/sdk';
+import { transcribeWithAtlasCloud } from './atlascloud';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,18 +21,15 @@ const args = process.argv.slice(2);
 const RAW_FLAG = args.includes('--raw');
 const INPUT = args.find(arg => !arg.startsWith('--')) ?? 'https://www.youtube.com/watch?v=fdQtJ6TD5fE';
 const BASE_TRANSCRIPTS_DIR = path.join(require('os').homedir(), 'Documents', 'transcripts');
-const TMP_AUDIO = path.join(tmpdir(), `yt-audio-${Date.now()}.m4a`);
+const ASR_PROVIDER = (process.env.ASR_PROVIDER || 'elevenlabs').toLowerCase();
+if (ASR_PROVIDER !== 'elevenlabs' && ASR_PROVIDER !== 'atlascloud') {
+    throw new Error('ASR_PROVIDER must be either elevenlabs or atlascloud');
+}
+const TMP_AUDIO_FORMAT = ASR_PROVIDER === 'atlascloud' ? 'mp3' : 'm4a';
+const TMP_AUDIO = path.join(tmpdir(), `yt-audio-${Date.now()}.${TMP_AUDIO_FORMAT}`);
 
 // supported audio/video extensions for local files
 const MEDIA_EXTENSIONS = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.mp4', '.mkv', '.webm', '.mov', '.avi'];
-
-const eleven = new ElevenLabsClient({
-    apiKey:
-        process.env.ELEVEN_LABS_API_KEY ??
-        (() => {
-            throw new Error('Missing ELEVEN_LABS_API_KEY in .env');
-        })(),
-});
 
 const anthropic = new Anthropic({
     apiKey:
@@ -58,6 +56,15 @@ interface SpeechToTextWordResponse {
     end?: number;
     type?: 'word' | 'spacing' | 'punctuation' | string;
     speaker_id?: string;
+}
+
+interface TranscriptionResponse {
+    words: SpeechToTextWordResponse[];
+    language_code?: string;
+    language_probability?: number;
+    provider: 'elevenlabs' | 'atlascloud';
+    model: string;
+    raw: unknown;
 }
 
 interface ThemeClassification {
@@ -159,10 +166,13 @@ function getTitleFromPath(filePath: string): string {
  */
 async function extractAudioFromVideo(videoPath: string, destAudio: string): Promise<void> {
     try {
+        const codecArgs = ASR_PROVIDER === 'atlascloud'
+            ? ['-acodec', 'libmp3lame']
+            : ['-acodec', 'aac'];
         await execFileAsync('ffmpeg', [
             '-i', videoPath,
             '-vn',                    // no video
-            '-acodec', 'aac',         // audio codec
+            ...codecArgs,
             '-b:a', '192k',           // audio bitrate
             '-y',                     // overwrite output
             destAudio,
@@ -553,7 +563,7 @@ async function downloadAudio(url: string, dest: string) {
     try {
         const args = [
             '--extract-audio',
-            '--audio-format', 'm4a',
+            '--audio-format', TMP_AUDIO_FORMAT,
             '--audio-quality', '0', // best quality
             '--output', dest,
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -580,11 +590,26 @@ async function downloadAudio(url: string, dest: string) {
     }
 }
 
-async function transcribeAudio(filePath: string) {
+async function transcribeAudio(filePath: string): Promise<TranscriptionResponse> {
+    if (ASR_PROVIDER === 'atlascloud') {
+        const result = await transcribeWithAtlasCloud(filePath);
+        return {
+            words: result.words,
+            language_code: result.language_code,
+            language_probability: result.language_probability,
+            provider: result.provider,
+            model: result.model,
+            raw: result.prediction,
+        };
+    }
+
+    const apiKey = process.env.ELEVEN_LABS_API_KEY;
+    if (!apiKey) throw new Error('Missing ELEVEN_LABS_API_KEY in .env');
+    const eleven = new ElevenLabsClient({ apiKey });
     const audioBuffer = await fs.readFile(filePath);
     const audioBlob = new Blob([audioBuffer], { type: 'audio/m4a' });
 
-    return eleven.speechToText.convert(
+    const result = await eleven.speechToText.convert(
         {
             model_id: 'scribe_v1_experimental',
             file: audioBlob,
@@ -595,6 +620,14 @@ async function transcribeAudio(filePath: string) {
             timeoutInSeconds: 1200,
         }
     );
+    return {
+        words: result.words,
+        language_code: result.language_code,
+        language_probability: result.language_probability,
+        provider: 'elevenlabs',
+        model: 'scribe_v1_experimental',
+        raw: result,
+    };
 }
 
 export function wordsToTranscript(words: Word[]): string {
@@ -701,9 +734,9 @@ async function main() {
     }
 
     // transcribe
-    console.time('📝  elevenlabs');
+    console.time(`📝  ${ASR_PROVIDER}`);
     const resp = await transcribeAudio(audioPath);
-    console.timeEnd('📝  elevenlabs');
+    console.timeEnd(`📝  ${ASR_PROVIDER}`);
 
     // convert API response words to our Word interface
     const words: Word[] = resp.words.map((w) => ({
@@ -778,6 +811,8 @@ async function main() {
         
         // Transcription metadata
         transcription: {
+            provider: resp.provider,
+            model: resp.model,
             language: resp.language_code,
             confidence: resp.language_probability,
             wordsDetected: resp.words.length,
@@ -791,7 +826,7 @@ async function main() {
     ];
 
     if (RAW_FLAG) {
-        writePromises.push(fs.writeFile(rawJsonOut, JSON.stringify(resp, null, 2), 'utf8'));
+        writePromises.push(fs.writeFile(rawJsonOut, JSON.stringify(resp.raw, null, 2), 'utf8'));
     }
 
     await Promise.all(writePromises);
