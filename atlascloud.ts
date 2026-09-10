@@ -19,6 +19,7 @@ interface AtlasCloudPrediction {
     stt_result?: {
         text?: string;
         duration?: number;
+        language?: string;
         words?: AtlasCloudWord[];
     };
 }
@@ -94,8 +95,10 @@ export async function transcribeWithAtlasCloud(
     const apiBase = normalizeAtlasCloudApiBase(options.apiBase || process.env.ATLASCLOUD_API_BASE);
     const model = options.model || process.env.ATLASCLOUD_ASR_MODEL || DEFAULT_MODEL;
     const pollIntervalMs = options.pollIntervalMs ?? 5000;
-    const maxPollAttempts = options.maxPollAttempts ?? 120;
+    const maxPollAttempts = options.maxPollAttempts ?? 240;
     const fetchImpl = options.fetchImpl || fetch;
+    // Validate before reading: the whole file lands in memory as base64.
+    const format = atlasAudioFormat(filePath);
     const audio = await fs.readFile(filePath);
 
     // Generation is submitted exactly once. Only subsequent status reads are retried.
@@ -108,7 +111,7 @@ export async function transcribeWithAtlasCloud(
         body: JSON.stringify({
             model,
             audio_url: audio.toString('base64'),
-            format: atlasAudioFormat(filePath),
+            format,
             enable_itn: true,
             enable_punc: true,
             enable_speaker_info: true,
@@ -121,26 +124,33 @@ export async function transcribeWithAtlasCloud(
         throw new Error('Atlas Cloud submission did not return a prediction id');
     }
 
+    // The id only comes back on submission; a malformed status read must not lose it.
+    const predictionId = prediction.id;
+    if (prediction.status === 'failed') {
+        throw new Error(`Atlas Cloud prediction ${predictionId} failed`);
+    }
+
     let lastReadError: unknown;
     for (let attempt = 0; prediction.status !== 'completed' && attempt < maxPollAttempts; attempt += 1) {
-        if (prediction.status === 'failed') {
-            throw new Error(`Atlas Cloud prediction ${prediction.id} failed`);
-        }
         await wait(pollIntervalMs);
         try {
-            const resultResponse = await fetchImpl(`${apiBase}/model/prediction/${prediction.id}`, {
+            const resultResponse = await fetchImpl(`${apiBase}/model/prediction/${predictionId}`, {
                 headers: { Authorization: `Bearer ${apiKey}` },
             });
             prediction = predictionFromResponse(await responseJson(resultResponse, 'status read'));
+            prediction.id = prediction.id ?? predictionId;
             lastReadError = undefined;
         } catch (error) {
             lastReadError = error;
+        }
+        if (prediction.status === 'failed') {
+            throw new Error(`Atlas Cloud prediction ${predictionId} failed`);
         }
     }
 
     if (prediction.status !== 'completed') {
         const detail = lastReadError instanceof Error ? `: ${lastReadError.message}` : '';
-        throw new Error(`Atlas Cloud prediction ${prediction.id} did not complete${detail}`);
+        throw new Error(`Atlas Cloud prediction ${predictionId} did not complete${detail}`);
     }
 
     const text = prediction.stt_result?.text || prediction.outputs?.[0] || '';
@@ -152,6 +162,7 @@ export async function transcribeWithAtlasCloud(
 
     return {
         words,
+        language_code: prediction.stt_result?.language,
         provider: 'atlascloud',
         model,
         prediction,

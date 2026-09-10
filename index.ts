@@ -31,6 +31,9 @@ const TMP_AUDIO = path.join(tmpdir(), `yt-audio-${Date.now()}.${TMP_AUDIO_FORMAT
 // supported audio/video extensions for local files
 const MEDIA_EXTENSIONS = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.mp4', '.mkv', '.webm', '.mov', '.avi'];
 
+// audio Atlas Cloud accepts as-is; anything else is transcoded to mp3 first
+const ATLAS_NATIVE_AUDIO = ['.mp3', '.wav', '.ogg', '.raw'];
+
 const anthropic = new Anthropic({
     apiKey:
         process.env.ANTHROPIC_API_KEY ??
@@ -726,6 +729,13 @@ async function main() {
             console.time('🎬  extracting audio');
             await extractAudioFromVideo(resolvedPath, TMP_AUDIO);
             console.timeEnd('🎬  extracting audio');
+            audioPath = TMP_AUDIO;
+            needsCleanup = true;
+        } else if (ASR_PROVIDER === 'atlascloud' && !ATLAS_NATIVE_AUDIO.includes(ext)) {
+            // Atlas Cloud rejects m4a/flac outright — transcode rather than fail after upload.
+            console.time('🎧  converting audio');
+            await extractAudioFromVideo(resolvedPath, TMP_AUDIO);
+            console.timeEnd('🎧  converting audio');
             audioPath = TMP_AUDIO;
             needsCleanup = true;
         } else {
