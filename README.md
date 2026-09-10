@@ -1,35 +1,3 @@
-
-<div align="right">
-  <details>
-    <summary >🌐 Language</summary>
-    <div>
-      <div align="center">
-        <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=en">English</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=zh-CN">简体中文</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=zh-TW">繁體中文</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ja">日本語</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ko">한국어</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=hi">हिन्दी</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=th">ไทย</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=fr">Français</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=de">Deutsch</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=es">Español</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=it">Italiano</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ru">Русский</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=pt">Português</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=nl">Nederlands</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=pl">Polski</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=ar">العربية</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=fa">فارسی</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=tr">Türkçe</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=vi">Tiếng Việt</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=id">Bahasa Indonesia</a>
-        | <a href="https://openaitx.github.io/view.html?user=itsfabioroma&project=transcribee&lang=as">অসমীয়া</
-      </div>
-    </div>
-  </details>
-</div>
-
 # transcribee 🐝
 
 **Open source macOS transcriber for YouTube, Instagram Reels, TikTok, and local media — evolves a self-organizing knowledge base.**
@@ -140,7 +108,7 @@ This adds `transcript-raw.json` with the full transcription-provider response.
 ## Optional Atlas Cloud transcription
 
 ElevenLabs remains the default speech-to-text provider. To use Atlas Cloud's
-speaker-aware ASR for MP3, WAV, OGG, or raw audio, set these values in `.env`:
+speaker-aware ASR instead, set these values in `.env`:
 
 ```bash
 ASR_PROVIDER=atlascloud
@@ -149,8 +117,12 @@ ATLASCLOUD_API_BASE=https://api.atlascloud.ai/api/v1
 ATLASCLOUD_ASR_MODEL=bytedance/seed-asr-2.0
 ```
 
-URL and video inputs are converted to MP3 automatically for this provider.
-Direct M4A and FLAC inputs should be converted to MP3, WAV, or OGG first.
+Atlas Cloud accepts MP3, WAV, OGG, and raw audio. Anything else — URLs, video
+files, local M4A or FLAC — is converted to MP3 automatically, so every format in
+the table below works with either provider.
+
+Audio is uploaded inline with the request, so very large files use proportionally
+more memory than the ElevenLabs path.
 
 ## How it works 🐝
 
