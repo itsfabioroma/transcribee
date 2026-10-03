@@ -38,8 +38,8 @@ This project requires `yt-dlp` to be installed on the system:
 The main script follows this pipeline:
 
 1. **Video Metadata Extraction** (`getVideoTitle`): Uses yt-dlp to extract and sanitize the video title
-2. **Audio Download** (`downloadAudio`): Downloads best quality audio as m4a using yt-dlp with Android/web player clients to bypass restrictions
-3. **Transcription** (`transcribeAudio`): Provider picked by `providers.ts` (`ASR_PROVIDER`, default `impossibl`). `impossibl.ts` posts multipart to `/v1/audio/transcriptions` with `elevenlabs/scribe-v2` + diarization; files up to ElevenLabs' limits (3 GB, 10 h; env `IMPOSSIBL_MAX_UPLOAD_MB` / `IMPOSSIBL_MAX_DURATION_HOURS`) upload whole. Longer audio is split into time chunks whose word timings are offset and merged; a 413 retries once with the old re-encode (mono 16 kHz 32 kbps) + chunking under 24 MB. `elevenlabs` (direct SDK) and `atlascloud.ts` remain opt-in
+2. **Audio Download** (`downloadAudio`): yt-dlp with `-f bestaudio[ext=m4a]/bestaudio/best`, so only the audio stream is fetched (m4a is a remux). No forced `player_client`: `android,web` plus cookies left only combined format 18 (video). Cloud boxes need `~/.config/yt-dlp/config` with `--cookies-from-browser chrome --js-runtimes node --remote-components ejs:github`
+3. **Transcription** (`transcribeAudio`): Provider picked by `providers.ts` (`ASR_PROVIDER`, default `impossibl`). `impossibl.ts` posts multipart to `/v1/audio/transcriptions` with `elevenlabs/scribe-v2` + diarization; the size limit is the model's `max_file_size_bytes` from `GET /v1/models` (5 GB for Scribe v2; fetched once per run, 10 s timeout, one retry, 25 MB if unavailable), and duration is capped at 10 h. Env `IMPOSSIBL_MAX_UPLOAD_MB` / `IMPOSSIBL_MAX_DURATION_HOURS` override; `IMPOSSIBL_ASR_MODEL` picks the model. Files under both upload whole. Longer audio is split into time chunks whose word timings are offset and merged; a 413 retries once with the old re-encode (mono 16 kHz 32 kbps) + chunking under 24 MB. `elevenlabs` (direct SDK) and `atlascloud.ts` remain opt-in
 4. **Library Structure Analysis** (`readLibraryStructure`): Reads existing transcript library from `~/Documents/transcripts/` as a flat folder structure
 5. **Category Classification** (`classifyAndOrganize`): Uses Claude (via Impossibl's Anthropic-compatible API by default, `LLM_PROVIDER=anthropic` for direct) to decide which single-level category folder to place it in
 6. **Output Generation**: Saves per transcript:
@@ -89,5 +89,5 @@ All transcripts are saved to: `~/Documents/transcripts/{category}/{video-title-Y
 - Uses `pnpm` as package manager (v10.10.0)
 - All file operations use Node's `fs.promises` API
 - Tests: `npx tsx --test *.test.ts tests/*.test.ts`
-- Impossibl limits default to 3 GB / 10 h; chunking is a fallback (>10 h or gateway 413) and speaker ids restart per chunk
+- Impossibl upload size comes from `/v1/models` (5 GB for Scribe v2), duration 10 h; chunking is a fallback (>10 h or gateway 413) and speaker ids restart per chunk
 - Temporary audio files stored in OS tmpdir and cleaned up after processing

@@ -49,8 +49,8 @@ pip install yt-dlp && apt install ffmpeg   # Linux
 
 | Error | Fix |
 |-------|-----|
-| `yt-dlp not found` | `brew install yt-dlp` |
-| `ffmpeg not found` | `brew install ffmpeg` |
+| `yt-dlp not found` | `brew install yt-dlp` / `pip install yt-dlp` |
+| `ffmpeg not found` | `brew install ffmpeg` / `apt install ffmpeg` |
 | `Sign in to confirm you're not a bot` (cloud servers) | Add to `~/.config/yt-dlp/config`: `--cookies-from-browser chrome`, `--js-runtimes node`, `--remote-components ejs:github` (needs a YouTube login in that browser) |
 | API errors | Check `IMPOSSIBL_API_KEY` in transcribee's `.env` |
-| Long files | Up to 3 GB / 10 h uploads whole; chunked only past 10 h or if the gateway returns 413 (speaker labels restart per chunk) |
+| Long files | Uploads whole up to the model's limit from Impossibl's `/v1/models` (5 GB for Scribe v2) and 10 h; chunked only past 10 h or on a 413 (speaker labels restart per chunk). Downloads are audio-only (~1 MB/min) |
