@@ -5,7 +5,7 @@ description: Transcribe YouTube videos and local audio/video files with speaker 
 
 # Transcribee
 
-Transcribe YouTube videos and local media files with speaker diarization via ElevenLabs.
+Transcribe YouTube videos and local media files with speaker diarization (ElevenLabs Scribe v2 via the Impossibl gateway; Claude Haiku picks the category). Needs `IMPOSSIBL_API_KEY` in `.env`.
 
 ## Usage
 
@@ -29,9 +29,8 @@ Transcripts save to: `~/Documents/transcripts/{category}/{title}-{date}/`
 | File | Use |
 |------|-----|
 | `transcript.txt` | Speaker-labeled transcript |
-| `transcription-raw.txt` | Plain text, no speakers |
-| `transcription-raw.json` | Word-level timings |
-| `metadata.json` | Video info, language, category |
+| `metadata.json` | Video info, language, category, provider |
+| `transcript-raw.json` | Word-level timings (only with `--raw`) |
 
 ## Supported Formats
 
@@ -51,4 +50,5 @@ brew install yt-dlp ffmpeg
 |-------|-----|
 | `yt-dlp not found` | `brew install yt-dlp` |
 | `ffmpeg not found` | `brew install ffmpeg` |
-| API errors | Check `.env` file in transcribee directory |
+| API errors | Check `IMPOSSIBL_API_KEY` in transcribee's `.env` |
+| Long files | Over 25 MB is auto-compressed/chunked; speaker labels restart per chunk |

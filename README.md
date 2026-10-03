@@ -68,7 +68,7 @@ pnpm install
 
 # Configure API keys
 cp .env.example .env
-# Add your ElevenLabs + Anthropic API keys to .env
+# Add your IMPOSSIBL_API_KEY to .env (one key for both steps)
 
 # Transcribe anything
 transcribee "https://youtube.com/watch?v=..."
@@ -105,30 +105,30 @@ transcribee --raw "https://youtube.com/watch?v=..."
 
 This adds `transcript-raw.json` with the full transcription-provider response.
 
-## Optional Atlas Cloud transcription
+## Providers
 
-ElevenLabs remains the default speech-to-text provider. To use Atlas Cloud's
-speaker-aware ASR instead, set these values in `.env`:
+| Step | Default | Opt-in alternatives |
+|------|---------|---------------------|
+| Transcription (`ASR_PROVIDER`) | `impossibl`: ElevenLabs Scribe v2, $0.22/audio hour | `elevenlabs` (direct), `atlascloud` |
+| Classification (`LLM_PROVIDER`) | `impossibl`: `anthropic/claude-haiku-4-5` | `anthropic` (direct, `claude-sonnet-5`) |
 
-```bash
-ASR_PROVIDER=atlascloud
-ATLASCLOUD_API_KEY=your_atlascloud_api_key_here
-ATLASCLOUD_API_BASE=https://api.atlascloud.ai/api/v1
-ATLASCLOUD_ASR_MODEL=bytedance/seed-asr-2.0
-```
+[Impossibl](https://impossibl.com) is one key (`IMPOSSIBL_API_KEY`) for both steps. If it's
+missing but `ELEVEN_LABS_API_KEY` / `ANTHROPIC_API_KEY` are set, transcribee falls back to
+those and says so. Override the classification model with `ANTHROPIC_MODEL`.
 
-Atlas Cloud accepts MP3, WAV, OGG, and raw audio. Anything else — URLs, video
-files, local M4A or FLAC — is converted to MP3 automatically, so every format in
-the table below works with either provider.
+Impossibl uploads are capped at 25 MB. Bigger files are re-encoded to mono 16 kHz 32 kbps
+MP3 (about 14 MB per hour), and anything over ~1h40m is split into chunks that are
+transcribed separately and merged. Speaker labels restart in each chunk, so `speaker_0`
+in one chunk may not be the same person as `speaker_0` in the next.
 
-Audio is uploaded inline with the request, so very large files use proportionally
-more memory than the ElevenLabs path.
+Atlas Cloud (`ASR_PROVIDER=atlascloud`, `ATLASCLOUD_API_KEY`) accepts MP3, WAV, OGG, and raw
+audio; anything else is converted to MP3 automatically.
 
 ## How it works 🐝
 
 1. Downloads audio from YouTube (yt-dlp) or extracts from local video (ffmpeg)
-2. Transcribes with ElevenLabs by default, or Atlas Cloud when explicitly configured
-3. Claude analyzes content and existing library structure
+2. Transcribes with ElevenLabs Scribe v2 via Impossibl (speaker diarization), chunking files over 25 MB
+3. Claude Haiku (via Impossibl) analyzes content and existing library structure
 4. Auto-categorizes into the right folder
 5. Saves transcript files with metadata
 
@@ -138,9 +138,8 @@ more memory than the ElevenLabs path.
 - Node.js 18+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `brew install yt-dlp`
 - [ffmpeg](https://ffmpeg.org/) — `brew install ffmpeg`
-- [ElevenLabs API key](https://elevenlabs.io/) — for default transcription
-- [Atlas Cloud API key](https://atlascloud.ai/) — optional alternative transcription provider
-- [Anthropic API key](https://anthropic.com/) — for auto-categorization
+- [Impossibl API key](https://impossibl.com) — transcription + auto-categorization
+- Optional: ElevenLabs, Anthropic, or Atlas Cloud keys to use those providers directly
 
 ## Supported formats
 

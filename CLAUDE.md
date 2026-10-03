@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A video transcription system that downloads audio from YouTube, Instagram Reels, TikTok, and local files, transcribes it using ElevenLabs, and automatically categorizes transcripts into a knowledge library using Claude AI for theme classification.
+A video transcription system that downloads audio from YouTube, Instagram Reels, TikTok, and local files, transcribes it (ElevenLabs Scribe v2 via the Impossibl gateway by default), and automatically categorizes transcripts into a knowledge library using Claude (also via Impossibl).
 
 ## Quick Start
 
@@ -14,9 +14,8 @@ pnpm install
 
 # Setup environment variables
 cp .env.example .env
-# Edit .env and add your API keys:
-# - ELEVEN_LABS_API_KEY (for speech-to-text)
-# - ANTHROPIC_API_KEY (for intelligent organization)
+# Edit .env and add IMPOSSIBL_API_KEY (used for both speech-to-text and classification).
+# Optional fallbacks: ELEVEN_LABS_API_KEY, ANTHROPIC_API_KEY, ATLASCLOUD_API_KEY
 
 # Transcribe a YouTube video
 pnpm exec tsx index.ts "https://www.youtube.com/watch?v=..."
@@ -40,14 +39,13 @@ The main script follows this pipeline:
 
 1. **Video Metadata Extraction** (`getVideoTitle`): Uses yt-dlp to extract and sanitize the video title
 2. **Audio Download** (`downloadAudio`): Downloads best quality audio as m4a using yt-dlp with Android/web player clients to bypass restrictions
-3. **Transcription** (`transcribeAudio`): Sends audio to ElevenLabs `scribe_v1_experimental` model with diarization (speaker identification) enabled
+3. **Transcription** (`transcribeAudio`): Provider picked by `providers.ts` (`ASR_PROVIDER`, default `impossibl`). `impossibl.ts` posts multipart to `/v1/audio/transcriptions` with `elevenlabs/scribe-v2` + diarization; files over 24 MB are re-encoded (mono 16 kHz 32 kbps) and, if needed, split into chunks whose word timings are offset and merged. `elevenlabs` (direct SDK) and `atlascloud.ts` remain opt-in
 4. **Library Structure Analysis** (`readLibraryStructure`): Reads existing transcript library from `~/Documents/transcripts/` as a flat folder structure
-5. **Category Classification** (`classifyAndOrganize`): Uses Claude Sonnet 4 to analyze the transcript and decide which single-level category folder to place it in
-6. **Output Generation**: Saves 4 files per transcript:
-   - `transcription-raw.txt`: Raw ElevenLabs output
-   - `transcription-raw.json`: Full API response with word timings
-   - `transcription.txt`: Formatted with speaker labels
-   - `metadata.json`: Video info, theme classification, and summary
+5. **Category Classification** (`classifyAndOrganize`): Uses Claude (via Impossibl's Anthropic-compatible API by default, `LLM_PROVIDER=anthropic` for direct) to decide which single-level category folder to place it in
+6. **Output Generation**: Saves per transcript:
+   - `transcript.txt`: Formatted with speaker labels
+   - `metadata.json`: Source info, theme classification, transcription provider/model
+   - `transcript-raw.json`: Full provider response with word timings (only with `--raw`)
 
 ### Transcript Organization System
 
@@ -75,7 +73,7 @@ The codebase uses strong typing throughout:
 
 ## Claude AI Integration
 
-The system uses Claude Sonnet 4 (`claude-sonnet-4-20250514`) for category classification with carefully crafted prompts:
+Classification uses `@anthropic-ai/sdk`; with Impossibl it sets `baseURL: https://api.impossibl.com` (no `/v1`). Default model: `anthropic/claude-haiku-4-5` via Impossibl, `claude-sonnet-5` direct; `ANTHROPIC_MODEL` overrides (`getClassificationModel` in `classification.ts`).
 
 - **Token Management**: Estimates ~4 chars per token, truncates transcripts to 150K tokens max using beginning/middle/end sampling
 - **Context-Aware**: Provides Claude with full library structure to reuse existing categories when appropriate
@@ -90,5 +88,6 @@ All transcripts are saved to: `~/Documents/transcripts/{category}/{video-title-Y
 - The project uses `tsx` for direct TypeScript execution without compilation
 - Uses `pnpm` as package manager (v10.10.0)
 - All file operations use Node's `fs.promises` API
-- ElevenLabs timeout set to 1200 seconds (20 minutes) for long videos
+- Tests: `npx tsx --test *.test.ts tests/*.test.ts`
+- Impossibl uploads are capped at 25 MB; speaker ids restart per chunk for very long (>~1h40m) audio
 - Temporary audio files stored in OS tmpdir and cleaned up after processing
