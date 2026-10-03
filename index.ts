@@ -9,6 +9,12 @@ import dotenv from 'dotenv';
 import { ElevenLabsClient } from 'elevenlabs';
 import Anthropic from '@anthropic-ai/sdk';
 import { transcribeWithAtlasCloud } from './atlascloud';
+import {
+    classifyWithFallback,
+    extractTextContent,
+    getClassificationModel,
+    type OrganizationPlan,
+} from './classification.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -113,12 +119,6 @@ interface FolderNode {
     type: 'folder' | 'transcript';
     children?: FolderNode[];
     metadata?: TranscriptMetadata;
-}
-
-interface OrganizationPlan {
-    newTranscriptPath: string;
-    reasoning: string;
-    confidence: 'high' | 'medium' | 'low';
 }
 
 // ---------- helpers ----------------------------------------------------------
@@ -396,7 +396,7 @@ Respond with a JSON object (no markdown code blocks):
 }`;
 
     const message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: getClassificationModel(),
         max_tokens: 2048,
         messages: [
             {
@@ -406,13 +406,8 @@ Respond with a JSON object (no markdown code blocks):
         ],
     });
 
-    const content = message.content[0];
-    if (content.type !== 'text') {
-        throw new Error('Unexpected response type from Claude');
-    }
-
     // Parse JSON response
-    const result = JSON.parse(content.text) as OrganizationPlan;
+    const result = JSON.parse(extractTextContent(message.content)) as OrganizationPlan;
     return result;
 }
 
@@ -765,7 +760,9 @@ async function main() {
 
     // classify and organize using Claude
     console.time('🤖  category classification');
-    const plan = await classifyAndOrganize(structuredTranscript, sourceUrl, title, libraryStructure);
+    const plan = await classifyWithFallback(() =>
+        classifyAndOrganize(structuredTranscript, sourceUrl, title, libraryStructure),
+    );
     console.timeEnd('🤖  category classification');
 
     // display organization plan

@@ -28,7 +28,7 @@ Transcripts save to: `~/Documents/transcripts/{category}/{title}-{date}/`
 
 | File | Use |
 |------|-----|
-| `transcription.txt` | Speaker-labeled transcript |
+| `transcript.txt` | Speaker-labeled transcript |
 | `transcription-raw.txt` | Plain text, no speakers |
 | `transcription-raw.json` | Word-level timings |
 | `metadata.json` | Video info, language, category |
