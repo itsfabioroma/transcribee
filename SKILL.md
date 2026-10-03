@@ -1,6 +1,6 @@
 ---
 name: transcribee
-description: Transcribe YouTube videos and local audio/video files with speaker diarization. Use when user asks to transcribe a YouTube URL, podcast, video, or audio file. Outputs clean speaker-labeled transcripts ready for LLM analysis.
+description: Use when asked to transcribe a YouTube/Instagram/TikTok URL, podcast, or local audio/video file; saves speaker-labeled transcripts filed by topic.
 ---
 
 # Transcribee
@@ -41,7 +41,8 @@ Transcripts save to: `~/Documents/transcripts/{category}/{title}-{date}/`
 ## Dependencies
 
 ```bash
-brew install yt-dlp ffmpeg
+brew install yt-dlp ffmpeg            # macOS
+pip install yt-dlp && apt install ffmpeg   # Linux
 ```
 
 ## Troubleshooting
@@ -50,5 +51,6 @@ brew install yt-dlp ffmpeg
 |-------|-----|
 | `yt-dlp not found` | `brew install yt-dlp` |
 | `ffmpeg not found` | `brew install ffmpeg` |
+| `Sign in to confirm you're not a bot` (cloud servers) | Add to `~/.config/yt-dlp/config`: `--cookies-from-browser chrome`, `--js-runtimes node`, `--remote-components ejs:github` (needs a YouTube login in that browser) |
 | API errors | Check `IMPOSSIBL_API_KEY` in transcribee's `.env` |
 | Long files | Up to 3 GB / 10 h uploads whole; chunked only past 10 h or if the gateway returns 413 (speaker labels restart per chunk) |
