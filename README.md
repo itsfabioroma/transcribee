@@ -116,10 +116,11 @@ This adds `transcript-raw.json` with the full transcription-provider response.
 missing but `ELEVEN_LABS_API_KEY` / `ANTHROPIC_API_KEY` are set, transcribee falls back to
 those and says so. Override the classification model with `ANTHROPIC_MODEL`.
 
-Impossibl uploads are capped at 25 MB. Bigger files are re-encoded to mono 16 kHz 32 kbps
-MP3 (about 14 MB per hour), and anything over ~1h40m is split into chunks that are
-transcribed separately and merged. Speaker labels restart in each chunk, so `speaker_0`
-in one chunk may not be the same person as `speaker_0` in the next.
+Impossibl uses ElevenLabs' own limits: up to 3 GB and 10 hours per file (override with
+`IMPOSSIBL_MAX_UPLOAD_MB` / `IMPOSSIBL_MAX_DURATION_HOURS`), so files are uploaded whole.
+Chunking is a fallback only: audio over 10 hours, or a 413 from the gateway, which triggers
+one retry with the file re-encoded to mono 16 kHz 32 kbps MP3 and split under 24 MB. Speaker
+labels restart in each chunk, so `speaker_0` in one chunk may not be the next chunk's `speaker_0`.
 
 Atlas Cloud (`ASR_PROVIDER=atlascloud`, `ATLASCLOUD_API_KEY`) accepts MP3, WAV, OGG, and raw
 audio; anything else is converted to MP3 automatically.
@@ -127,7 +128,7 @@ audio; anything else is converted to MP3 automatically.
 ## How it works 🐝
 
 1. Downloads audio from YouTube (yt-dlp) or extracts from local video (ffmpeg)
-2. Transcribes with ElevenLabs Scribe v2 via Impossibl (speaker diarization), chunking files over 25 MB
+2. Transcribes with ElevenLabs Scribe v2 via Impossibl (speaker diarization), whole files up to 3 GB / 10 h
 3. Claude Haiku (via Impossibl) analyzes content and existing library structure
 4. Auto-categorizes into the right folder
 5. Saves transcript files with metadata

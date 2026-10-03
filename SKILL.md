@@ -51,4 +51,4 @@ brew install yt-dlp ffmpeg
 | `yt-dlp not found` | `brew install yt-dlp` |
 | `ffmpeg not found` | `brew install ffmpeg` |
 | API errors | Check `IMPOSSIBL_API_KEY` in transcribee's `.env` |
-| Long files | Over 25 MB is auto-compressed/chunked; speaker labels restart per chunk |
+| Long files | Up to 3 GB / 10 h uploads whole; chunked only past 10 h or if the gateway returns 413 (speaker labels restart per chunk) |

@@ -39,7 +39,7 @@ The main script follows this pipeline:
 
 1. **Video Metadata Extraction** (`getVideoTitle`): Uses yt-dlp to extract and sanitize the video title
 2. **Audio Download** (`downloadAudio`): Downloads best quality audio as m4a using yt-dlp with Android/web player clients to bypass restrictions
-3. **Transcription** (`transcribeAudio`): Provider picked by `providers.ts` (`ASR_PROVIDER`, default `impossibl`). `impossibl.ts` posts multipart to `/v1/audio/transcriptions` with `elevenlabs/scribe-v2` + diarization; files over 24 MB are re-encoded (mono 16 kHz 32 kbps) and, if needed, split into chunks whose word timings are offset and merged. `elevenlabs` (direct SDK) and `atlascloud.ts` remain opt-in
+3. **Transcription** (`transcribeAudio`): Provider picked by `providers.ts` (`ASR_PROVIDER`, default `impossibl`). `impossibl.ts` posts multipart to `/v1/audio/transcriptions` with `elevenlabs/scribe-v2` + diarization; files up to ElevenLabs' limits (3 GB, 10 h; env `IMPOSSIBL_MAX_UPLOAD_MB` / `IMPOSSIBL_MAX_DURATION_HOURS`) upload whole. Longer audio is split into time chunks whose word timings are offset and merged; a 413 retries once with the old re-encode (mono 16 kHz 32 kbps) + chunking under 24 MB. `elevenlabs` (direct SDK) and `atlascloud.ts` remain opt-in
 4. **Library Structure Analysis** (`readLibraryStructure`): Reads existing transcript library from `~/Documents/transcripts/` as a flat folder structure
 5. **Category Classification** (`classifyAndOrganize`): Uses Claude (via Impossibl's Anthropic-compatible API by default, `LLM_PROVIDER=anthropic` for direct) to decide which single-level category folder to place it in
 6. **Output Generation**: Saves per transcript:
@@ -89,5 +89,5 @@ All transcripts are saved to: `~/Documents/transcripts/{category}/{video-title-Y
 - Uses `pnpm` as package manager (v10.10.0)
 - All file operations use Node's `fs.promises` API
 - Tests: `npx tsx --test *.test.ts tests/*.test.ts`
-- Impossibl uploads are capped at 25 MB; speaker ids restart per chunk for very long (>~1h40m) audio
+- Impossibl limits default to 3 GB / 10 h; chunking is a fallback (>10 h or gateway 413) and speaker ids restart per chunk
 - Temporary audio files stored in OS tmpdir and cleaned up after processing

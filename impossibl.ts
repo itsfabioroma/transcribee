@@ -8,8 +8,12 @@ const execFileAsync = promisify(execFile);
 
 export const IMPOSSIBL_API_BASE = 'https://api.impossibl.com';
 export const IMPOSSIBL_ASR_MODEL = 'elevenlabs/scribe-v2';
-// The gateway rejects uploads over 25 MB; leave headroom for multipart overhead.
-export const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
+// ElevenLabs Speech-to-Text limits: 3 GB per file, 10 h of audio (standard mode).
+// Override with IMPOSSIBL_MAX_UPLOAD_MB / IMPOSSIBL_MAX_DURATION_HOURS.
+export const MAX_UPLOAD_BYTES = 3 * 1024 ** 3;
+export const MAX_DURATION_SECS = 10 * 60 * 60;
+// Cap used to retry once if the gateway answers 413 (its old 25 MB limit, minus multipart headroom).
+export const FALLBACK_MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
 
 export interface ImpossiblWord {
     text: string;
@@ -43,9 +47,57 @@ interface RequestOptions {
     fetchImpl?: typeof fetch;
 }
 
+export interface UploadLimits {
+    maxBytes: number;
+    maxDurationSecs: number;
+}
+
 interface PrepareOptions {
     maxBytes?: number;
+    maxDurationSecs?: number;
     workDir?: string;
+    probeDuration?: (filePath: string) => Promise<number>;
+}
+
+interface TranscribeOptions extends RequestOptions, PrepareOptions {
+    fallbackMaxBytes?: number;
+}
+
+export class ImpossiblHttpError extends Error {
+    constructor(message: string, readonly status: number, readonly uploadBytes: number) {
+        super(message);
+        this.name = 'ImpossiblHttpError';
+    }
+}
+
+function positiveEnvNumber(env: NodeJS.ProcessEnv, name: string): number | undefined {
+    const raw = env[name]?.trim();
+    if (!raw) return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number, got "${raw}"`);
+    return value;
+}
+
+/**
+ * Upload limits: explicit options win, then env overrides, then ElevenLabs' own limits.
+ */
+export function resolveUploadLimits(options: PrepareOptions = {}, env: NodeJS.ProcessEnv = process.env): UploadLimits {
+    const envMb = positiveEnvNumber(env, 'IMPOSSIBL_MAX_UPLOAD_MB');
+    const envHours = positiveEnvNumber(env, 'IMPOSSIBL_MAX_DURATION_HOURS');
+    return {
+        maxBytes: options.maxBytes ?? (envMb === undefined ? MAX_UPLOAD_BYTES : Math.floor(envMb * 1024 * 1024)),
+        maxDurationSecs: options.maxDurationSecs ?? (envHours === undefined ? MAX_DURATION_SECS : envHours * 3600),
+    };
+}
+
+/**
+ * Seconds per chunk so every chunk is under both limits, with headroom
+ * (90% of the size limit, assuming constant bitrate; 98% of the duration limit).
+ */
+export function chunkSecondsFor(sizeBytes: number, durationSecs: number, limits: UploadLimits): number {
+    const bySize = (durationSecs * limits.maxBytes * 0.9) / sizeBytes;
+    const byDuration = limits.maxDurationSecs * 0.98;
+    return Math.max(1, Math.floor(Math.min(bySize, byDuration)));
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -87,8 +139,12 @@ export async function transcribeFileWithImpossibl(
 
     const body = await response.text();
     if (!response.ok) {
-        const hint = response.status === 413 ? ' (upload exceeds the 25 MB limit)' : '';
-        throw new Error(`Impossibl transcription failed with HTTP ${response.status}${hint}: ${body.slice(0, 300)}`);
+        const hint = response.status === 413 ? " (upload exceeds the gateway's size limit)" : '';
+        throw new ImpossiblHttpError(
+            `Impossibl transcription failed with HTTP ${response.status}${hint}: ${body.slice(0, 300)}`,
+            response.status,
+            audio.length,
+        );
     }
     return JSON.parse(body) as ImpossiblTranscript;
 }
@@ -103,45 +159,60 @@ async function runFfmpeg(args: string[]): Promise<void> {
 }
 
 async function probeDuration(filePath: string): Promise<number> {
-    const { stdout } = await execFileAsync('ffprobe', [
-        '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath,
-    ]);
+    let stdout: string;
+    try {
+        ({ stdout } = await execFileAsync('ffprobe', [
+            '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath,
+        ]));
+    } catch (error: any) {
+        if (error.code === 'ENOENT') throw new Error('ffprobe not found. Install ffmpeg with: brew install ffmpeg');
+        throw new Error(`Could not read duration of ${filePath}: ${error.message}`);
+    }
     const duration = parseFloat(stdout.trim());
     if (!Number.isFinite(duration)) throw new Error(`Could not read duration of ${filePath}`);
     return duration;
 }
 
 /**
- * Return upload-ready chunks for a file. Files under the limit pass through untouched;
- * larger ones are re-encoded to mono 16 kHz 32 kbps MP3 (~14 MB/hour) and, if still
- * too big, split into time chunks. Generated files live in workDir; caller cleans up.
+ * Return upload-ready chunks for a file. A file under both the size and duration limits
+ * passes through untouched as one piece (consistent speaker labels). Over the size limit
+ * it is re-encoded to mono 16 kHz 32 kbps MP3 (~14 MB/hour); if still too big, or longer
+ * than the duration limit, it is split into time chunks under both limits.
+ * Generated files live in workDir; caller cleans up.
  */
 export async function prepareAudioForUpload(
     filePath: string,
     options: PrepareOptions = {}
 ): Promise<{ chunks: AudioChunk[]; workDir?: string }> {
-    const maxBytes = options.maxBytes ?? MAX_UPLOAD_BYTES;
-    if ((await fs.stat(filePath)).size <= maxBytes) {
+    const limits = resolveUploadLimits(options);
+    const probe = options.probeDuration || probeDuration;
+    const fits = (bytes: number, secs: number) => bytes <= limits.maxBytes && secs <= limits.maxDurationSecs;
+
+    let size = (await fs.stat(filePath)).size;
+    let duration = await probe(filePath);
+    if (fits(size, duration)) {
         return { chunks: [{ path: filePath, offsetSecs: 0 }] };
     }
 
     const workDir = options.workDir || await fs.mkdtemp(path.join(tmpdir(), 'transcribee-impossibl-'));
-    const compressed = path.join(workDir, 'compressed.mp3');
-    await runFfmpeg(['-i', filePath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '32k', compressed]);
-
-    const size = (await fs.stat(compressed)).size;
-    if (size <= maxBytes) {
-        return { chunks: [{ path: compressed, offsetSecs: 0 }], workDir };
+    let source = filePath;
+    if (size > limits.maxBytes) {
+        source = path.join(workDir, 'compressed.mp3');
+        await runFfmpeg(['-i', filePath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '32k', source]);
+        size = (await fs.stat(source)).size;
+        duration = await probe(source);
+        if (fits(size, duration)) {
+            return { chunks: [{ path: source, offsetSecs: 0 }], workDir };
+        }
     }
 
-    // Constant bitrate, so size scales with duration; aim for 90% of the limit per chunk.
-    const duration = await probeDuration(compressed);
-    const chunkSecs = Math.max(1, Math.floor((duration * maxBytes * 0.9) / size));
+    const chunkSecs = chunkSecondsFor(size, duration, limits);
+    const extension = path.extname(source) || '.mp3';
     const chunks: AudioChunk[] = [];
     for (let start = 0, index = 0; start < duration; start += chunkSecs, index += 1) {
-        const chunkPath = path.join(workDir, `chunk-${String(index).padStart(3, '0')}.mp3`);
-        await runFfmpeg(['-ss', String(start), '-t', String(chunkSecs), '-i', compressed, '-c', 'copy', chunkPath]);
-        if ((await fs.stat(chunkPath)).size > maxBytes) {
+        const chunkPath = path.join(workDir, `chunk-${String(index).padStart(3, '0')}${extension}`);
+        await runFfmpeg(['-ss', String(start), '-t', String(chunkSecs), '-i', source, '-vn', '-c', 'copy', chunkPath]);
+        if ((await fs.stat(chunkPath)).size > limits.maxBytes) {
             throw new Error(`Audio chunk ${chunkPath} is still over the upload limit`);
         }
         chunks.push({ path: chunkPath, offsetSecs: start });
@@ -175,9 +246,13 @@ export function mergeChunkTranscripts(
     };
 }
 
-export async function transcribeWithImpossibl(
+function formatMb(bytes: number): string {
+    return String(Number((bytes / 1024 / 1024).toFixed(1)));
+}
+
+async function transcribePrepared(
     filePath: string,
-    options: RequestOptions & PrepareOptions = {}
+    options: TranscribeOptions
 ): Promise<{ transcript: ImpossiblTranscript; chunks: number }> {
     const { chunks, workDir } = await prepareAudioForUpload(filePath, options);
     try {
@@ -189,5 +264,38 @@ export async function transcribeWithImpossibl(
         return { transcript: mergeChunkTranscripts(parts), chunks: chunks.length };
     } finally {
         if (workDir && !options.workDir) await fs.rm(workDir, { recursive: true, force: true });
+    }
+}
+
+/**
+ * Transcribe with ElevenLabs' limits. If the gateway still answers 413 (older deploy or a
+ * lower provider limit), retry once with the old re-encode/chunking under 24 MB.
+ */
+export async function transcribeWithImpossibl(
+    filePath: string,
+    options: TranscribeOptions = {}
+): Promise<{ transcript: ImpossiblTranscript; chunks: number }> {
+    const fallbackMaxBytes = options.fallbackMaxBytes ?? FALLBACK_MAX_UPLOAD_BYTES;
+    try {
+        return await transcribePrepared(filePath, options);
+    } catch (error) {
+        const limits = resolveUploadLimits(options);
+        if (!(error instanceof ImpossiblHttpError) || error.status !== 413 || limits.maxBytes <= fallbackMaxBytes) {
+            throw error;
+        }
+        const rejectedMb = formatMb(error.uploadBytes);
+        const capMb = formatMb(fallbackMaxBytes);
+        console.log(`⚠️  gateway rejected ${rejectedMb} MB upload (413); retrying with re-encode/chunking under ${capMb} MB`);
+        try {
+            return await transcribePrepared(filePath, { ...options, maxBytes: fallbackMaxBytes });
+        } catch (retryError) {
+            if (retryError instanceof ImpossiblHttpError && retryError.status === 413) {
+                throw new Error(
+                    `Impossibl gateway rejected the upload (413) even after re-encoding/chunking under ${capMb} MB. ` +
+                    `Set IMPOSSIBL_MAX_UPLOAD_MB lower to force smaller chunks. Last error: ${retryError.message}`
+                );
+            }
+            throw retryError;
+        }
     }
 }
