@@ -8,10 +8,13 @@ const execFileAsync = promisify(execFile);
 
 export const IMPOSSIBL_API_BASE = 'https://api.impossibl.com';
 export const IMPOSSIBL_ASR_MODEL = 'elevenlabs/scribe-v2';
-// ElevenLabs Speech-to-Text limits: 3 GB per file, 10 h of audio (standard mode).
+// The per-model upload limit comes from GET /v1/models (max_file_size_bytes). If that
+// lookup fails, assume a conservative 25 MB. ElevenLabs also caps audio at 10 h per
+// file (standard mode), which /v1/models does not report.
 // Override with IMPOSSIBL_MAX_UPLOAD_MB / IMPOSSIBL_MAX_DURATION_HOURS.
-export const MAX_UPLOAD_BYTES = 3 * 1024 ** 3;
+export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const MAX_DURATION_SECS = 10 * 60 * 60;
+export const MODELS_TIMEOUT_MS = 10_000;
 // Cap used to retry once if the gateway answers 413 (its old 25 MB limit, minus multipart headroom).
 export const FALLBACK_MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
 
@@ -52,9 +55,12 @@ export interface UploadLimits {
     maxDurationSecs: number;
 }
 
-interface PrepareOptions {
+interface LimitOptions extends Pick<RequestOptions, 'apiBase' | 'model' | 'fetchImpl'> {
     maxBytes?: number;
     maxDurationSecs?: number;
+}
+
+interface PrepareOptions extends LimitOptions {
     workDir?: string;
     probeDuration?: (filePath: string) => Promise<number>;
 }
@@ -78,14 +84,82 @@ function positiveEnvNumber(env: NodeJS.ProcessEnv, name: string): number | undef
     return value;
 }
 
+export function resolveAsrModel(options: { model?: string } = {}, env: NodeJS.ProcessEnv = process.env): string {
+    return options.model || env.IMPOSSIBL_ASR_MODEL?.trim() || IMPOSSIBL_ASR_MODEL;
+}
+
+function resolveApiBase(options: { apiBase?: string } = {}, env: NodeJS.ProcessEnv = process.env): string {
+    return (options.apiBase || env.IMPOSSIBL_API_BASE || IMPOSSIBL_API_BASE).replace(/\/+$/, '');
+}
+
+// One /v1/models lookup per model per run.
+const modelLimitCache = new Map<string, Promise<number | undefined>>();
+
+export function clearModelLimitCache(): void {
+    modelLimitCache.clear();
+}
+
 /**
- * Upload limits: explicit options win, then env overrides, then ElevenLabs' own limits.
+ * The gateway's max_file_size_bytes for a model, or undefined (with one log line)
+ * if /v1/models can't be read or doesn't list a limit for it.
  */
-export function resolveUploadLimits(options: PrepareOptions = {}, env: NodeJS.ProcessEnv = process.env): UploadLimits {
+export function fetchModelUploadLimit(
+    model: string,
+    options: { apiBase?: string; fetchImpl?: typeof fetch; timeoutMs?: number } = {}
+): Promise<number | undefined> {
+    const apiBase = resolveApiBase(options);
+    const key = `${apiBase} ${model}`;
+    let cached = modelLimitCache.get(key);
+    if (!cached) {
+        cached = lookupModelUploadLimit(model, apiBase, options.fetchImpl || fetch, options.timeoutMs ?? MODELS_TIMEOUT_MS);
+        modelLimitCache.set(key, cached);
+    }
+    return cached;
+}
+
+async function lookupModelUploadLimit(
+    model: string,
+    apiBase: string,
+    fetchImpl: typeof fetch,
+    timeoutMs: number
+): Promise<number | undefined> {
+    let reason = '';
+    // Two tries: the gateway occasionally answers a transient 502.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const response = await fetchImpl(`${apiBase}/v1/models`, { signal: AbortSignal.timeout(timeoutMs) });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const body = await response.json() as { data?: Array<{ id?: string; max_file_size_bytes?: unknown }> };
+            const limit = body.data?.find(entry => entry.id === model)?.max_file_size_bytes;
+            if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) return limit;
+            reason = 'model not listed or no max_file_size_bytes';
+            break;
+        } catch (error: any) {
+            reason = error?.message || String(error);
+        }
+    }
+    console.log(`ℹ️  Could not read upload limit for ${model} from /v1/models (${reason}); assuming ${formatMb(DEFAULT_MAX_UPLOAD_BYTES)} MB`);
+    return undefined;
+}
+
+/**
+ * Upload limits. Size: explicit option, then IMPOSSIBL_MAX_UPLOAD_MB, then the model's
+ * max_file_size_bytes from /v1/models, then a conservative 25 MB.
+ * Duration: explicit option, then IMPOSSIBL_MAX_DURATION_HOURS, then 10 h.
+ */
+export async function resolveUploadLimits(options: LimitOptions = {}, env: NodeJS.ProcessEnv = process.env): Promise<UploadLimits> {
     const envMb = positiveEnvNumber(env, 'IMPOSSIBL_MAX_UPLOAD_MB');
     const envHours = positiveEnvNumber(env, 'IMPOSSIBL_MAX_DURATION_HOURS');
+    let maxBytes = options.maxBytes ?? (envMb === undefined ? undefined : Math.floor(envMb * 1024 * 1024));
+    if (maxBytes === undefined) {
+        const apiLimit = await fetchModelUploadLimit(resolveAsrModel(options, env), {
+            apiBase: resolveApiBase(options, env),
+            fetchImpl: options.fetchImpl,
+        });
+        maxBytes = apiLimit ?? DEFAULT_MAX_UPLOAD_BYTES;
+    }
     return {
-        maxBytes: options.maxBytes ?? (envMb === undefined ? MAX_UPLOAD_BYTES : Math.floor(envMb * 1024 * 1024)),
+        maxBytes,
         maxDurationSecs: options.maxDurationSecs ?? (envHours === undefined ? MAX_DURATION_SECS : envHours * 3600),
     };
 }
@@ -118,14 +192,14 @@ export async function transcribeFileWithImpossibl(
     const apiKey = options.apiKey || process.env.IMPOSSIBL_API_KEY;
     if (!apiKey) throw new Error('Missing IMPOSSIBL_API_KEY in .env');
 
-    const apiBase = (options.apiBase || process.env.IMPOSSIBL_API_BASE || IMPOSSIBL_API_BASE).replace(/\/+$/, '');
+    const apiBase = resolveApiBase(options);
     const fetchImpl = options.fetchImpl || fetch;
     const audio = await fs.readFile(filePath);
     const mimeType = MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 
     // Only send fields the gateway allows; anything else is a 400.
     const form = new FormData();
-    form.append('model', options.model || IMPOSSIBL_ASR_MODEL);
+    form.append('model', resolveAsrModel(options));
     form.append('file', new Blob([audio], { type: mimeType }), path.basename(filePath));
     form.append('diarize', 'true');
     form.append('tag_audio_events', 'true');
@@ -184,7 +258,7 @@ export async function prepareAudioForUpload(
     filePath: string,
     options: PrepareOptions = {}
 ): Promise<{ chunks: AudioChunk[]; workDir?: string }> {
-    const limits = resolveUploadLimits(options);
+    const limits = await resolveUploadLimits(options);
     const probe = options.probeDuration || probeDuration;
     const fits = (bytes: number, secs: number) => bytes <= limits.maxBytes && secs <= limits.maxDurationSecs;
 
@@ -197,6 +271,7 @@ export async function prepareAudioForUpload(
     const workDir = options.workDir || await fs.mkdtemp(path.join(tmpdir(), 'transcribee-impossibl-'));
     let source = filePath;
     if (size > limits.maxBytes) {
+        console.log(`🗜️  ${formatMb(size)} MB is over the ${formatMb(limits.maxBytes)} MB upload limit; re-encoding to mono 32 kbps`);
         source = path.join(workDir, 'compressed.mp3');
         await runFfmpeg(['-i', filePath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '32k', source]);
         size = (await fs.stat(source)).size;
@@ -268,18 +343,18 @@ async function transcribePrepared(
 }
 
 /**
- * Transcribe with ElevenLabs' limits. If the gateway still answers 413 (older deploy or a
- * lower provider limit), retry once with the old re-encode/chunking under 24 MB.
+ * Transcribe within the model's limits. If the gateway still answers 413 (limit changed
+ * or multipart overhead at the edge), retry once with re-encode/chunking under 24 MB.
  */
 export async function transcribeWithImpossibl(
     filePath: string,
     options: TranscribeOptions = {}
 ): Promise<{ transcript: ImpossiblTranscript; chunks: number }> {
     const fallbackMaxBytes = options.fallbackMaxBytes ?? FALLBACK_MAX_UPLOAD_BYTES;
+    const limits = await resolveUploadLimits(options);
     try {
-        return await transcribePrepared(filePath, options);
+        return await transcribePrepared(filePath, { ...options, ...limits });
     } catch (error) {
-        const limits = resolveUploadLimits(options);
         if (!(error instanceof ImpossiblHttpError) || error.status !== 413 || limits.maxBytes <= fallbackMaxBytes) {
             throw error;
         }
@@ -287,7 +362,7 @@ export async function transcribeWithImpossibl(
         const capMb = formatMb(fallbackMaxBytes);
         console.log(`⚠️  gateway rejected ${rejectedMb} MB upload (413); retrying with re-encode/chunking under ${capMb} MB`);
         try {
-            return await transcribePrepared(filePath, { ...options, maxBytes: fallbackMaxBytes });
+            return await transcribePrepared(filePath, { ...options, ...limits, maxBytes: fallbackMaxBytes });
         } catch (retryError) {
             if (retryError instanceof ImpossiblHttpError && retryError.status === 413) {
                 throw new Error(

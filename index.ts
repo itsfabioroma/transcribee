@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import { ElevenLabsClient } from 'elevenlabs';
 import Anthropic from '@anthropic-ai/sdk';
 import { transcribeWithAtlasCloud } from './atlascloud';
-import { IMPOSSIBL_API_BASE, IMPOSSIBL_ASR_MODEL, transcribeWithImpossibl } from './impossibl';
+import { IMPOSSIBL_API_BASE, resolveAsrModel, transcribeWithImpossibl } from './impossibl';
 import { resolveAsrProvider, resolveLlmProvider } from './providers';
 import {
     classifyWithFallback,
@@ -138,13 +138,6 @@ interface FolderNode {
  */
 function isUrl(input: string): boolean {
     return input.startsWith('http://') || input.startsWith('https://');
-}
-
-/**
- * Check if URL is a YouTube video
- */
-function isYouTubeUrl(url: string): boolean {
-    return url.includes('youtube.com') || url.includes('youtu.be');
 }
 
 /**
@@ -437,15 +430,7 @@ function sanitizeTitle(title: string): string {
  */
 async function getUrlMetadata(url: string): Promise<SourceMetadata> {
     try {
-        const args = ['--dump-json', '--no-download'];
-
-        // Add YouTube-specific options only for YouTube URLs
-        if (isYouTubeUrl(url)) {
-            args.push('--extractor-args', 'youtube:player_client=android,web');
-        }
-
-        args.push(url);
-
+        const args = ['--dump-json', '--no-download', url];
         const { stdout } = await execFileAsync('yt-dlp', args, { maxBuffer: 10 * 1024 * 1024 });
         const data = JSON.parse(stdout);
 
@@ -468,12 +453,7 @@ async function getUrlMetadata(url: string): Promise<SourceMetadata> {
         console.warn('⚠️  Failed to extract full metadata, falling back to basic info');
         // Fallback: try just getting the title
         try {
-            const args = ['--get-title'];
-            if (isYouTubeUrl(url)) {
-                args.push('--extractor-args', 'youtube:player_client=android,web');
-            }
-            args.push(url);
-            const { stdout } = await execFileAsync('yt-dlp', args);
+            const { stdout } = await execFileAsync('yt-dlp', ['--get-title', url]);
             return {
                 title: stdout.trim() || `video-${Date.now()}`,
                 webpage_url: url,
@@ -568,20 +548,19 @@ async function downloadAudio(url: string, dest: string) {
     // Use yt-dlp for reliable video downloads from YouTube, Instagram, etc.
     // Install with: brew install yt-dlp (macOS) or pip install yt-dlp
     try {
+        // Pick an audio-only stream (m4a first, so extraction is a remux) instead of
+        // letting yt-dlp fall back to a combined video file. Leave YouTube's player
+        // clients to yt-dlp: forcing android,web left only combined format 18 when
+        // cookies are in use (android doesn't support cookies; web alone has no audio-only).
         const args = [
+            '--format', 'bestaudio[ext=m4a]/bestaudio/best',
             '--extract-audio',
             '--audio-format', TMP_AUDIO_FORMAT,
             '--audio-quality', '0', // best quality
             '--output', dest,
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            url,
         ];
-
-        // Add YouTube-specific options only for YouTube URLs
-        if (isYouTubeUrl(url)) {
-            args.push('--extractor-args', 'youtube:player_client=android,web');
-        }
-
-        args.push(url);
 
         await execFileAsync('yt-dlp', args);
     } catch (error: any) {
@@ -605,7 +584,7 @@ async function transcribeAudio(filePath: string): Promise<TranscriptionResponse>
             language_code: transcript.language_code,
             language_probability: transcript.language_probability,
             provider: 'impossibl',
-            model: IMPOSSIBL_ASR_MODEL,
+            model: resolveAsrModel(),
             raw: transcript,
         };
     }
