@@ -9,10 +9,13 @@ import dotenv from 'dotenv';
 import { ElevenLabsClient } from 'elevenlabs';
 import Anthropic from '@anthropic-ai/sdk';
 import { transcribeWithAtlasCloud } from './atlascloud';
+import { IMPOSSIBL_API_BASE, IMPOSSIBL_ASR_MODEL, transcribeWithImpossibl } from './impossibl';
+import { resolveAsrProvider, resolveLlmProvider } from './providers';
 import {
     classifyWithFallback,
     extractTextContent,
     getClassificationModel,
+    parseOrganizationPlan,
     type OrganizationPlan,
 } from './classification.ts';
 
@@ -27,10 +30,11 @@ const args = process.argv.slice(2);
 const RAW_FLAG = args.includes('--raw');
 const INPUT = args.find(arg => !arg.startsWith('--')) ?? 'https://www.youtube.com/watch?v=fdQtJ6TD5fE';
 const BASE_TRANSCRIPTS_DIR = path.join(require('os').homedir(), 'Documents', 'transcripts');
-const ASR_PROVIDER = (process.env.ASR_PROVIDER || 'elevenlabs').toLowerCase();
-if (ASR_PROVIDER !== 'elevenlabs' && ASR_PROVIDER !== 'atlascloud') {
-    throw new Error('ASR_PROVIDER must be either elevenlabs or atlascloud');
-}
+const asr = resolveAsrProvider();
+const llm = resolveLlmProvider();
+for (const notice of [asr.notice, llm.notice]) if (notice) console.log(notice);
+const ASR_PROVIDER = asr.provider;
+const LLM_PROVIDER = llm.provider;
 const TMP_AUDIO_FORMAT = ASR_PROVIDER === 'atlascloud' ? 'mp3' : 'm4a';
 const TMP_AUDIO = path.join(tmpdir(), `yt-audio-${Date.now()}.${TMP_AUDIO_FORMAT}`);
 
@@ -40,13 +44,19 @@ const MEDIA_EXTENSIONS = ['.mp3', '.m4a', '.wav', '.ogg', '.flac', '.mp4', '.mkv
 // audio Atlas Cloud accepts as-is; anything else is transcoded to mp3 first
 const ATLAS_NATIVE_AUDIO = ['.mp3', '.wav', '.ogg', '.raw'];
 
+// Impossibl speaks the Anthropic Messages API; the SDK appends /v1/messages to baseURL.
+const LLM_KEY_NAME = LLM_PROVIDER === 'impossibl' ? 'IMPOSSIBL_API_KEY' : 'ANTHROPIC_API_KEY';
 const anthropic = new Anthropic({
     apiKey:
-        process.env.ANTHROPIC_API_KEY ??
+        process.env[LLM_KEY_NAME] ??
         (() => {
-            throw new Error('Missing ANTHROPIC_API_KEY in .env');
+            throw new Error(`Missing ${LLM_KEY_NAME} in .env`);
         })(),
+    ...(LLM_PROVIDER === 'impossibl'
+        ? { baseURL: (process.env.IMPOSSIBL_API_BASE || IMPOSSIBL_API_BASE).replace(/\/+$/, '') }
+        : {}),
 });
+const CLASSIFICATION_MODEL = getClassificationModel(process.env, LLM_PROVIDER);
 
 // ---------- types ------------------------------------------------------------
 
@@ -71,7 +81,7 @@ interface TranscriptionResponse {
     words: SpeechToTextWordResponse[];
     language_code?: string;
     language_probability?: number;
-    provider: 'elevenlabs' | 'atlascloud';
+    provider: 'impossibl' | 'elevenlabs' | 'atlascloud';
     model: string;
     raw: unknown;
 }
@@ -396,7 +406,7 @@ Respond with a JSON object (no markdown code blocks):
 }`;
 
     const message = await anthropic.messages.create({
-        model: getClassificationModel(),
+        model: CLASSIFICATION_MODEL,
         max_tokens: 2048,
         messages: [
             {
@@ -407,8 +417,7 @@ Respond with a JSON object (no markdown code blocks):
     });
 
     // Parse JSON response
-    const result = JSON.parse(extractTextContent(message.content)) as OrganizationPlan;
-    return result;
+    return parseOrganizationPlan(extractTextContent(message.content));
 }
 
 
@@ -589,6 +598,18 @@ async function downloadAudio(url: string, dest: string) {
 }
 
 async function transcribeAudio(filePath: string): Promise<TranscriptionResponse> {
+    if (ASR_PROVIDER === 'impossibl') {
+        const { transcript } = await transcribeWithImpossibl(filePath, { language: process.env.ASR_LANGUAGE });
+        return {
+            words: transcript.words,
+            language_code: transcript.language_code,
+            language_probability: transcript.language_probability,
+            provider: 'impossibl',
+            model: IMPOSSIBL_ASR_MODEL,
+            raw: transcript,
+        };
+    }
+
     if (ASR_PROVIDER === 'atlascloud') {
         const result = await transcribeWithAtlasCloud(filePath);
         return {
@@ -759,6 +780,7 @@ async function main() {
     console.timeEnd('📚  reading library');
 
     // classify and organize using Claude
+    console.log(`🤖 Classifying with ${LLM_PROVIDER} (${CLASSIFICATION_MODEL})`);
     console.time('🤖  category classification');
     const plan = await classifyWithFallback(() =>
         classifyAndOrganize(structuredTranscript, sourceUrl, title, libraryStructure),

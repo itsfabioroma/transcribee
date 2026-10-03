@@ -4,7 +4,7 @@
     "description": "Transcribe audio from YouTube, Instagram, TikTok, and local media",
     "main": "index.js",
     "scripts": {
-        "test": "tsx --test *.test.ts"
+        "test": "tsx --test *.test.ts tests/*.test.ts"
     },
     "keywords": [],
     "author": "",

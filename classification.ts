@@ -6,8 +6,12 @@ export interface OrganizationPlan {
 
 export function getClassificationModel(
     env: Record<string, string | undefined> = process.env,
+    provider: 'impossibl' | 'anthropic' = 'anthropic',
 ): string {
-    return env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+    if (provider === 'anthropic') return env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+    // Impossibl model ids are creator-prefixed; accept bare Anthropic ids too.
+    const model = env.ANTHROPIC_MODEL || 'anthropic/claude-haiku-4-5';
+    return model.includes('/') ? model : `anthropic/${model}`;
 }
 
 export function extractTextContent(content: unknown[]): string {
@@ -24,6 +28,14 @@ export function extractTextContent(content: unknown[]): string {
     }
 
     return textBlock.text;
+}
+
+// Some models wrap the JSON in ```json fences or add prose; take the outermost object.
+export function parseOrganizationPlan(text: string): OrganizationPlan {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end < start) throw new Error(`No JSON object in classification response: ${text.slice(0, 100)}`);
+    return JSON.parse(text.slice(start, end + 1)) as OrganizationPlan;
 }
 
 export async function classifyWithFallback(
